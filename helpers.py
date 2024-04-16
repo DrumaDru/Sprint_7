@@ -2,120 +2,100 @@ import requests
 import json
 import pytest
 import allure
+import test_data
+import string
+import random
 
 class Helpers:
-    @allure.step('Для каждого атрибута данных пользователя для регистрации, вызывает метод register_new_courier_and_return_login_password'
-                 'и извлекаем значения зарегистрированного пользовтеля из списка. Затем выполняем запрос на создание пользователя с данными,'
-                 'уже зарегистрированного пользователя.')
-    def courier_duplicate_registration(self, register_new_courier_and_return_login_password):
-        login = register_new_courier_and_return_login_password[0]
-        password = register_new_courier_and_return_login_password[1]
-        first_name = register_new_courier_and_return_login_password[2]
 
+    @allure.step('Генерируем данные для последующей передачи их в тело запроса на регистрацию нового пользователя')
+    def generate_random_data_payload(self):
+        # метод генерирует строку, состоящую только из букв нижнего регистра, в качестве параметра передаём длину строки
+        def generate_random_string(length):
+            letters = string.ascii_lowercase
+            random_string = ''.join(random.choice(letters) for i in range(length))
+            return random_string
+        # генерируем логин, пароль и имя курьера
+        login = generate_random_string(10)
+        password = generate_random_string(10)
+        first_name = generate_random_string(10)
+
+        # собираем тело запроса
         payload = {
             "login": login,
             "password": password,
             "firstName": first_name
         }
+        # возвращаем payload
+        return payload
 
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier', data=payload)
-
-        if response.status_code == 409:
-            return response
-
-    @allure.step('Выполняем запрос на создание нового пользователя, в теле которого передаем пустое значнеия обязательно поля')
-    def not_all_required_fields(self, register_new_courier_and_return_login_password):
-        password = register_new_courier_and_return_login_password[1]
-        first_name = register_new_courier_and_return_login_password[2]
-
-        payload = {
-            "login": '',
-            "password": password,
-            "firstName": first_name
-        }
-
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier', data=payload)
-
-        if response.status_code == 400:
-            return response
-
-    @allure.step('Выполняем запрос на создание нового пользователя, в теле которого отсутствует обязательно поля')
-    def not_all_required_fields_exist(self, register_new_courier_and_return_login_password):
-        password = register_new_courier_and_return_login_password[1]
-        first_name = register_new_courier_and_return_login_password[2]
-
-        payload = {
-            "password": password,
-            "firstName": first_name
-        }
-
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier', data=payload)
-
-        if response.status_code == 400:
-            return response
-
-    @allure.step('Выполняем запрос на создание нового пользователя с использованием метода фикстуры return_random_data, для передачи в тело запроса случайных данных')
-    def correct_status_code(self, return_random_data):
-        payload = return_random_data
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier', data=payload)
+    @allure.step('Передаем в метод сгенерированные данные в методе generate_random_data_payload')
+    def registration_user(self, payload):
+        response = requests.post(f"{test_data.curl}/api/v1/courier", data=payload)
         return response
 
-    @allure.step('Выполняем запрос на авторизацию созданного пользователя. Даннные для тела запроса получаем из метода фикстуры register_new_courier_and_return_login_password,'
-                 'которая возвращает данные зарегистрированного нового пользователя')
-    def courier_login(self, register_new_courier_and_return_login_password):
-        login = register_new_courier_and_return_login_password[0]
-        password = register_new_courier_and_return_login_password[1]
+
+    @allure.step('Передаем сгенерированные данные в методе registration_user и выполняем запрос на первую регистрацию нового пользователя,'
+                 'затем с теми же данными выполняем повторный запро на регистрацию поользователя')
+    def courier_duplicate_registration(self):
+        payload = self.generate_random_data_payload()
+        self.registration_user(payload)
+        response = self.registration_user(payload)
+
+        return response
+
+
+    @allure.step('Выполняем запрос на создание нового пользователя, в теле которого, поочередно, передаем пустое значнеия обязательно поля логин и пароль')
+    def not_all_required_fields(self, payload):
+        response = self.registration_user(payload)
+        return response
+
+    @allure.step('Выполняем запрос на авторизацию созданного пользователя. Даннные для тела запроса получаем из метода registration_user,'
+                 'который возвращает данные зарегистрированного нового пользователя')
+    def courier_login(self):
+        data = self.generate_random_data_payload()
+        self.registration_user(data)
+        login = data['login']
+        password = data['password']
 
         payload = {
             "login": login,
             "password": password
         }
+        response = requests.post(f"{test_data.curl}/api/v1/courier/login", data=payload)
+        return response
 
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier/login', data=payload)
+    @allure.step('Выполяем запрос на создание авторизацию пользователя, с передачей в тело запроса пустого значения обязательного атрибута сначала для поля логин,'
+                 'затем для поля пароль')
+    def not_all_required_fields_login(self, payload):
+        data = self.generate_random_data_payload()
+        self.registration_user(data)
+        login = data['login']
+        password = data['password']
 
-        if response.status_code == 200:
-            return response
+        if payload["login"] is None:
+            payload["login"] = login
+        if payload["password"] is None:
+            payload["password"] = password
 
-    @allure.step('Выполяем запрос на авторизацию существущего пользователя, с передачей в тело запроса пустое значение обязательного атрибута')
-    def not_all_required_fields_login(self, register_new_courier_and_return_login_password):
-        password = register_new_courier_and_return_login_password[1]
+        response = requests.post(f"{test_data.curl}/api/v1/courier/login", data=payload)
+        return response
 
-        payload = {
-            "login": "",
-            "password": password
-        }
+    @allure.step('Выполяем запрос на авторизацию существуеющего пользователя, с передачей в тело запроса, некорректных значений логина или пароля')
+    def incorrect_data_login(self, payload):
+        data = self.generate_random_data_payload()
+        self.registration_user(data)
+        login = data['login']
+        password = data['password']
 
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier/login', data=payload)
+        if payload["login"] is None:
+            payload["login"] = login
+        if payload["password"] is None:
+            payload["password"] = password
 
-        if response.status_code == 400:
-            return response
+        response = requests.post(f"{test_data.curl}/api/v1/courier/login", data=payload)
+        return response
 
-    @allure.step('Выполяем запрос на авторизацию существущего пользователя, с отсутствующим обязательным полем в теле запроса.')
-    def not_all_required_fields_login_exist(self, register_new_courier_and_return_login_password):
-        password = register_new_courier_and_return_login_password[1]
-
-        payload = {
-            "password": password
-        }
-
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier/login', data=payload)
-
-        if response.status_code == 400:
-            return response
-
-    @allure.step('Выполяем запрос на авторизацию нового пользователя, с передачей в тело запроса, невалидных значений логина и пароля')
-    def incorret_data_login(self, register_new_courier_and_return_login_password):
-        login = register_new_courier_and_return_login_password[0]
-
-        payload = {
-            "login": login,
-            "password": 12345
-        }
-
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/courier/login', data=payload)
-
-        if response.status_code == 404:
-            return response
 
     @allure.step('Выполняем запрос на создание нового заказа, с передачей данных в тело запроса, трех разных вариантов значений поля "Цвет".')
     def order_create_colors(self, color):
@@ -134,15 +114,13 @@ class Helpers:
         }
 
         payload = json.dumps(data)
-        response = requests.post('https://qa-scooter.praktikum-services.ru/api/v1/orders', data=payload)
-
+        response = requests.post(f"{test_data.curl}/api/v1/orders", data=payload)
         return response
 
     @allure.step('Выполяем запрос на получение списка заказов')
     def orders_list(self):
-        response = requests.get('https://qa-scooter.praktikum-services.ru/api/v1/orders')
-        if response.status_code == 200:
-            return response
+        response = requests.get(f"{test_data.curl}/api/v1/orders")
+        return response
 
 
 
